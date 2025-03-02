@@ -1,2 +1,5 @@
 # CRISPR screen processing in R
-This page will follow ??? with some changes
+## 1 Testing boutroslab CRISPRAnalyzeR
+Test in MacOS with sufficient specs
+
+**1** identify data to test 
