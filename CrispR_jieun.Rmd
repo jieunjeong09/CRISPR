@@ -5,7 +5,7 @@ date: "`r Sys.Date()`"
 output: pdf_document
 ---
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(message = FALSE, warning = FALSE, error = FALSE)
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, error = TRUE)
 ```
 This vignette is based on a web page of Bioinformatics Resource Centre at
 Rockefeller University and it show how to use several Bioconductor
