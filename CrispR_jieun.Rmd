@@ -1,0 +1,281 @@
+---
+title: "CrispR analysis with Bioconductor"
+author: "Jieun Jeong"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, error = FALSE)
+```
+This vignette is based on a web page of Bioinformatics Resource Centre at
+Rockefeller University and it show how to use several Bioconductor
+packages in the analysis of data from a CrispR screen.
+
+## First steps
+
+We start from setting the working directory and downloading the data if not
+downloaded already.
+```{r Download, message=FALSE, warning=FALSE, results='hide'}
+wd <- "/Users/jieun/Work/Crispr"
+wdf <- function(...) file.path(wd,...)
+Download <- function(url, filename) {
+  file_path <- wdf(filename)
+  if (file.exists(file_path))
+    return()
+  options(timeout = 1000)
+  download.file(url, file_path)
+  unzip(file_path,exdir = wd)
+}
+Download("https://github.com/LewisLabUCSD/PinAPL-Py/archive/master.zip",
+         "pinaplData.zip")
+Download("http://pinapl-py.ucsd.edu/example-data","TestData.zip")
+dN <- wdf("New_Example_1580342908_4/Analysis")
+Download("http://pinapl-py.ucsd.edu/run/download/example-run","Results.zip")
+```
+
+## Quality control of fastq data
+
+We may inspect several metrics of data quality.  For larger data sets,
+we use random sampling that yields sufficiently accurate results, while
+time consuming steps may be avoided if data has clearly low quality.
+
+```{r QC with ShortRead}
+require(ShortRead)
+CRfile <- wdf("PinAPL-Py-master/Data/Tox-A_R01_98_S2_L008_R1_001_x.fastq.gz")
+fqSample <- FastqSampler(CRfile,n=10^5)
+fastq <- yield(fqSample)
+fastq # check sample statistic
+```
+Now we use so-called accessor functions.  The choice of bin width corresponds
+to the average bin quality rounded down to integer.  
+```{r Accessor_functions}
+readQuality <- quality(fastq)
+readQualities <- alphabetScore(readQuality)
+readQualities[1:14]
+require(ggplot2)
+toPlot <- data.frame(ReadQ=readQualities)
+ggplot(toPlot,aes(x=ReadQ))+geom_histogram(binwidth=50)+theme_minimal()
+```
+Q40 quality can be optimistic, so other measures can be more reliable, like
+how close the distribution of nucleotides on read position is close to what
+we can expect.
+```{r frequencies}
+readSequences <- sread(fastq)
+readSequences_AlpFreq <- alphabetFrequency(readSequences)
+readSequences_AlpFreq[1:3,]
+readSequences_AlpbyCycle <- alphabetByCycle(readSequences)
+readSequences_AlpbyCycle[1:4,1:10]
+```
+We can use barplot to visualize the distribution of the read frequencies.
+We see the reads have a constant prefix used to precipitate selectively DNA
+with guiding sequences, and a variable part, guiding sequences themselves, and
+effects of contamination as minorities in the prefix.
+```{r freq_plot}
+counts <- readSequences_AlpbyCycle[1:4,1:50]
+barplot(counts, col = c("blue", "red", "green", "yellow"), 
+        legend.text = rownames(counts),
+        args.legend = list( x = "topright", inset = c(-0.068, 0)),
+        main = "Nucleotide Counts by Cycle",
+        names.arg = 1:50)
+```
+The initial cycle may be affected by low quality rather than contamination,
+that can be checked as follows
+```{r qual_per_cycle}
+qualAsMatrix <- as(readQuality,"matrix")
+toPlot <- colMeans(qualAsMatrix)
+plot(toPlot, xlab = "cycle", ylab = "Q40")
+```
+The conclusion here is that quality is fine, but in mapping tolerating one
+mismatch and trimming first two cycles can be considered.
+
+## Aligning single data file
+
+The further analysis requires to align reads to the sgRNA require
+to quantify sgRNA abundance in our samples.  We start by retrieving and
+indexing the reference.
+```{r sgRNA_reference}
+GeCKO <- read.delim(wdf("PinAPL-py_demo_data/GeCKOv21_Human.tsv"))
+GeCKO[1:2,]
+require(Biostrings)
+sgRNAs <- DNAStringSet(GeCKO$seq)
+names(sgRNAs) <- GeCKO$UID
+writeXStringSet(sgRNAs, file=wdf("GeCKO.fa")) # sgRNA reference
+Index <- wdf("GeCKO")
+Index.fa <- paste0(Index,".fa")
+require(Rsubread)
+buildindex(Index,Index.fa, indexSplit=FALSE)
+```
+Now the test alignment
+```{r test_alignment}
+myFQs <- wdf("PinAPL-py_demo_data/Control_R1_S14_L008_R1_001_x.fastq.gz")
+myMapped <- align(Index,myFQs,output_file=sub(".fastq.gz",".bam",myFQs),
+                  nthreads=4,
+                  unique=TRUE,
+                  nBestLocations=1,
+                  type = "DNA",
+                  maxMismatches = 0,
+                  TH1=1)
+```
+We got 82.7% of uniquely mapped reads, we can test what happens if we 
+ allowed number a mismatch by setting `maxMismatches = 1`.  It increases
+the number of mapped reads by 8000, i.e. 1.6%.  However, the reference has
+sequences of length 20, so the constant prefix is soft-clipped, and one
+mismatch among 20 or 19 may create data noise that could significantly
+affect some genes associated with the guiding sequences in the reference.
+
+## Quantifying alignment result for a collection of data files
+
+To process bam files we will use packages that work with bam format without
+decompressing it into sam format.  The scheme is that we create a vector of 
+fasta-q files for samples in a CRISPR screen project, and then this vector
+together with the reference of gRNAs used in the project we create a
+data frame of counts.  For reasons we will see later we do it for two examples.
+
+```{r FilesOfPinapl}
+# Files of PinAPL demo
+d <- wdf("PinAPL-Py-master/Data/*fastq.gz")
+Files <- Sys.glob(d)
+```
+
+Then we apply a "data frame maker" that can be used in other projects too.
+
+```{r Code_of_maker_of_count_matrix}
+require(GenomicAlignments)
+Files_2_DF <- function(Files,indexFile) {
+  f_no <- length(Files)
+  for (i in seq(1,f_no)) {
+    fi <- Files[i]
+    # co <- CrisprCounts(fi,Index)
+    output <- sub("\\.f[^.]*\\.gz$",".bam", Files[i])
+    align(indexFile, Files[i], output_file=output, nthreads=4, unique=TRUE,
+        nBestLocations=1, type = "DNA", maxMismatches = 0, TH1=1)
+    # We decided to be most conservative and require that all 20 nucleotides of
+    # gRNAs are in the alignment, but one can use different criteria too.
+    temp <- readGAlignments(output)
+    # temp <- temp[width(temp) == 20]
+    co <- data.frame(table(seqnames(temp)),row.names = "Var1")
+    if (i == 1)
+      DF <- co
+    else
+      DF <- cbind(DF,co)
+  }
+  return(DF)
+}
+```
+Now we use that code
+```{r Use_of_maker_of_count_matrix}
+Counts <- Files_2_DF(Files,Index)
+colnames(Counts) <- c("Contr_1","Contr_2","ToxA_1","ToxA_2","ToxB_1","ToxB_2")
+head(Counts)
+```
+
+Now we can apply DESeq to find differential guides and genes.
+```{r DESeq_1}
+require(DESeq2)
+useCol <- DataFrame(Group=factor(c("C","C","TA","TA","TB","TB"),
+                    levels = c("C","TA","TB")),row.names = colnames(Counts))
+dds <- DESeqDataSetFromMatrix(Counts,colData = useCol,design = ~Group)
+dds <- DESeq(dds)
+TAvsC <- results(dds,contrast=c("Group","TA","C"))
+TAvsC <- TAvsC[order(TAvsC$pvalue),]
+head(TAvsC)
+```
+Note that fold changes of top gRNA's are "decent" but adjusted p-values are not.
+Later we will see the reason.  In general, DESeq is not recommended for CRISPR
+screens because interpretation of the read counts is different, we want to know
+essential genes in the screen context, not "differentially expressed".  Thus we
+will try to apply recommended
+```{r CRISPRcleanR_1}
+require(CRISPRcleanR)
+data(GeCKO_Library_v2) # GeCKO reference processed for use with CRISPRcleanR
+```
+With CRISPRcleanR (ccr from now) annotation for our CRISPR platform, we edit 
+Counts to Counts.ccr, a format required by ccr.  Some sgRNA rows will be
+removed, 1000 of them are for control sgRNAs, and a few for genes.  The issue
+of annotating sgRNAs for those genes will be left for later and now we will
+remove them from consideration:
+```{r making_Counts.ccr}
+Counts.ccr <- Counts[rownames(GeCKO_Library_v2),]
+Counts.ccr <- cbind(GeCKO_Library_v2[,c("CODE","GENES")],Counts.ccr)
+#normANDfcs<-ccr.NormfoldChanges(Dframe=Counts.ccr, min_reads=10,
+#                                display=TRUE, saveToFig=FALSE,
+#                                libraryAnnotation = GeCKO_Library_v2,
+#                                ncontrols = 2)
+```
+It does not work.  Probably the issue lies in very poor correlation of control
+samples, i.e. 0.13, compared to correlations within other pairs of replicates,
+0.96 and 0.999.
+```{r}
+cor(Counts.ccr[,3:8])
+```
+To study subsequent steps in the analysis, we consider another data set
+```{r}
+data(KY_Library_v1.0) # sequence ids, annotations, sequence
+d <- file.path(system.file("extdata",package = "CRISPRcleanR"),"*fq.gz")
+# decided to work in my directory
+d <- wdf("KY_extdata/*gz")
+Files <- Sys.glob(d)
+basename(Files)
+d <- file.path(system.file("data",package = "CRISPRcleanR"))
+data("KY_Library_v1.0.RData")
+# create fasta of sequences in KY_Library_v1.0 and build the index
+Index <- wdf("KY_Index")
+Index.fa <- wdf("KY_Index.fa")
+tempDF <- data.frame(ID = rownames(KY_Library_v1.0), seq = KY_Library_v1.0$seq)
+faEntries <- paste0(">", tempDF$ID, "\n", tempDF$seq)
+writeLines(faEntries,wdf("KY_Index.fa"))
+buildindex(Index,Index.fa, indexSplit=FALSE)
+```
+We repeat the construction of a data frame of read counts
+```{r}
+Counts <- Files_2_DF(Files,Index)
+colnames(Counts) <- c("Control","Sample1","Sample2")
+Counts$gene <- KY_Library_v1.0$GENES
+Counts <- Counts[,c(length(Files)+1,1:length(Files))]
+Counts <- tibble::rownames_to_column(Counts, var="sgRNA")
+write.table(Counts,wdf("KY_Counts"), sep='\t', quote=FALSE, row.names=F) 
+```
+Testing Files_2_DF and the second data set was very helpful, because the code
+was corrected: fastaq file have two possible suffices: .fq and .fastaq and
+converting the name to the name of .bam file had to be altered.
+
+## Finding essentiality (loss of fitness) and gain of fitness
+
+The goal of CRISPR screen is to identify two types of interesting genes.
+The loss of fitness genes (in extreme case, essential) have smaller counts
+in knockout sample compared with control, and gain of fitness genes, have
+larger count.  In tumors, the latter may be tumor supresing genes, typically,
+few but of special interest in designing therapies.
+
+Without normalization, fold changes may have show artifacts caused by
+several mechanism, for that reason packages like CRISPRcleanR can be used
+to remove them, e.g. using the following function
+
+```{r Pipeline_test, error=TRUE}
+ccr.AnalysisPipeline(
+  file_counts = wdf("KY_Counts.tsv"),
+  outdir= wdf("KY_pipeline/"),
+  EXPname = "KY",
+  library_builtin = "KY_Library_v1.0",
+  run_mageck = FALSE,
+  ncontrols = 1
+)
+```
+This does not work either, this data set fails the requirement that 80% of
+the library sgRNA has at least 30 reads in control, instead, the largest
+number (instead of 30) that satisfies this condition is 5, too little for
+a reasonable null model.  This tells that a good quality control has at least
+6 million reads, although if the counts is a bit smaller, we can reduce the
+threshold from 30 to 25 or 20.  So we try another data set
+```{r}
+fn <- file.path(
+system.file("extdata", package = "CRISPRcleanR"), "HT-29_counts.tsv"
+)
+ccr.AnalysisPipeline(
+  file_counts = fn,
+  outdir=wdf('./HT29_pipeline/'), EXPname = 'HT29',
+  library_builtin = "KY_Library_v1.0",
+  run_mageck = FALSE,
+  ncontrols = 1
+)
+```
