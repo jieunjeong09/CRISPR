@@ -1,34 +1,11 @@
 # CRISPR screen processing in R
 
+CRISPR screens have proven valuable for identifying therapeutic targets in cancers, which can vary among different types and subtypes. Genes that exhibit amplification may serve as potential tumor suppressors that retain their function in cancer, but their effectiveness is hindered by the activity of other genes. Thus, these genes present indirect targets.
 
-CRISPR screens proved to be valuable in identifying therapeutic targets
-in cancers that may differ in different types and subtypes.  Genes that
-show amplification are potential tumor suppresing genes that retained
-their function in cancer but are hindered by activity of other genes
-so are not sufficiently effective.  Thus they present indirect 
-targets.
+Conversely, genes that show a decline in cell counts after knockout relative to controls represent potential direct targets, as their disruption impairs cancer growth. This group may include genes that interact with the indirect targets described above.
 
-Genes that show decline in cell counts after knockout relative to Control 
-represent potential direct targets as they promote cancer growth,
-including genes interating with indirect targets describe above.
+CRISPR screens can also be applied to other areas of investigation beyond neoplasms, although the interpretation of fold changes will depend on the specific biological context. In any setting, further omics analyses—linking the results with transcriptomics, gene sets, and biological pathways—may be necessary to fully interpret the screening data.
 
-CRISPR screens may be applied in other investigations, not involving
-neoplasm, but interpretation of fold changes would depend on biological
-context.  But whatever the context, further omics analysis, connecting
-the results with transcriptome, gene sets and biological pathways
-may be needed to interpret screen results.
+Here, I developed and tested Files_to_DF, my workflow for constructing the data frame (or table) that serves as the input for the existing CRISPRcleanR workflow, ccr.AnalysisPipeline. The latter can be executed with a single function call to run the entire pipeline. In fact, any collection of FASTQ files can be processed with this script.
 
-Here I developed and tested Files_to_DF, my workflow for constructing 
-the data frame (or table) that can be the input for the existing 
-CRISPRcleanR workflow, ccr.AnalysisPipeline,
-the latter can be used with a single function call to a function
-that runs this pipeline.  Actually, any collection of fastaq files
-can be processed with this script, but for the 
-
-The count table can reveal if the data set is unreliable, first, if
-thes sum of counts in samples is below 6 million, CRISPRclean
-workflow will not work with default parameters, and if those sums
-are much lower, data is unreliable.  There are also other tests
-on mapping results that can reveal anomalies.
-
-
+The count table can help reveal if a dataset is unreliable. For example, if the total number of counts in the samples is below 6 million, the CRISPRclean workflow will not operate with the default parameters, and if these totals are much lower, the data are likely unreliable. Additionally, other tests on mapping results can uncover anomalies.
