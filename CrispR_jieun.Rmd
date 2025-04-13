@@ -93,7 +93,7 @@ mismatch and trimming first two cycles can be considered.
 The further analysis requires to align reads to the sgRNA require
 to quantify sgRNA abundance in our samples.  We start by retrieving and
 indexing the reference.
-```{r sgRNA_reference}
+```{r sgRNA_reference_GeCKO}
 GeCKO <- read.delim(wdf("PinAPL-py_demo_data/GeCKOv21_Human.tsv"))
 GeCKO[1:2,]
 require(Biostrings)
@@ -163,9 +163,10 @@ Files_2_DF <- function(Files,indexFile) {
 }
 ```
 Now we use that code
-```{r Use_of_maker_of_count_matrix}
+```{r Use_of_maker_of_count_matrix_1, results='hide'}
 Counts <- Files_2_DF(Files,Index)
-colnames(Counts) <- c("Contr_1","Contr_2","ToxA_1","ToxA_2","ToxB_1","ToxB_2")
+```
+```{r}
 head(Counts)
 ```
 
@@ -205,14 +206,14 @@ Counts.ccr <- cbind(GeCKO_Library_v2[,c("CODE","GENES")],Counts.ccr)
 It does not work.  Probably the issue lies in very poor correlation of control
 samples, i.e. 0.13, compared to correlations within other pairs of replicates,
 0.96 and 0.999.
-```{r}
+```{r Corellation}
 cor(Counts.ccr[,3:8])
 ```
 To study subsequent steps in the analysis, we consider another data set
-```{r}
+```{r KY_data}
 data(KY_Library_v1.0) # sequence ids, annotations, sequence
 d <- file.path(system.file("extdata",package = "CRISPRcleanR"),"*fq.gz")
-# decided to work in my directory
+# copied these files to my directory
 d <- wdf("KY_extdata/*gz")
 Files <- Sys.glob(d)
 basename(Files)
@@ -227,11 +228,12 @@ writeLines(faEntries,wdf("KY_Index.fa"))
 buildindex(Index,Index.fa, indexSplit=FALSE)
 ```
 We repeat the construction of a data frame of read counts
-```{r}
+```{r KY_Index, results='hide'}
 Counts <- Files_2_DF(Files,Index)
 colnames(Counts) <- c("Control","Sample1","Sample2")
 Counts$gene <- KY_Library_v1.0$GENES
 Counts <- Counts[,c(length(Files)+1,1:length(Files))]
+# change of format required by CRISPRclearR
 Counts <- tibble::rownames_to_column(Counts, var="sgRNA")
 write.table(Counts,wdf("KY_Counts"), sep='\t', quote=FALSE, row.names=F) 
 ```
@@ -262,20 +264,35 @@ ccr.AnalysisPipeline(
 )
 ```
 This does not work either, this data set fails the requirement that 80% of
-the library sgRNA has at least 30 reads in control, instead, the largest
-number (instead of 30) that satisfies this condition is 5, too little for
-a reasonable null model.  This tells that a good quality control has at least
-6 million reads, although if the counts is a bit smaller, we can reduce the
-threshold from 30 to 25 or 20.  So we try another data set
-```{r}
-fn <- file.path(
-system.file("extdata", package = "CRISPRcleanR"), "HT-29_counts.tsv"
-)
-ccr.AnalysisPipeline(
-  file_counts = fn,
-  outdir=wdf('./HT29_pipeline/'), EXPname = 'HT29',
-  library_builtin = "KY_Library_v1.0",
-  run_mageck = FALSE,
-  ncontrols = 1
-)
+the library sgRNA has at least 30 reads in control.  We can check what threshold
+lower than 30 satisfies 80% criteria.
+```{r 80percent_check}
+pr <- function(...) print(paste(...))
+r <- dim(Counts)[1]*0.8
+pr('required at least',r,'in every column, trying threshold 6')
+colSums(Counts[,3:5] >= 6)
+pr('trying threshold 5')
+colSums(Counts[,3:5] >= 5)
+pr('threshold 5 almost satisfies 80%, but is 6 times to small')
+pr('sums of readcounts 6 times too small, and they are')
+colSums(Counts[3:5])
 ```
+
+Actually, the fastaq files had 1 million fragments each, not all of them
+were mapped, so we need 6 million fragments or more in fastaq files.  Let's 
+test an alternative example mapped to the same set of sgRNAs
+```{r HT29_data, error=TRUE}
+fn <- file.path( system.file("extdata", package = "CRISPRcleanR"), 
+                 "HT-29_counts.tsv")
+Counts <- read.delim(fn)
+dim(Counts)
+colSums(Counts[3:6])/1000/1000
+```
+We see that sums of read counts are ca. 50 times larger than the minimum we
+estimated (we showed sums in millions).  We want at most 18,000 entries below
+30 in each column
+```{r entries_under_30}
+colSums(Counts[,3:6] < 30)
+```
+As expected, the critical statistics are small enough.
+In the second workout we will see how to use pipeline results.
