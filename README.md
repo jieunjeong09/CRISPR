@@ -8,4 +8,4 @@ CRISPR screens can also be applied to other areas of investigation beyond neopla
 
 Here, I developed and tested Files_to_DF, my workflow for constructing the data frame (or table) that serves as the input for the existing CRISPRcleanR workflow, ccr.AnalysisPipeline. The latter can be executed with a single function call to run the entire pipeline. In fact, any collection of FASTQ files can be processed with this script.
 
-The count table can help reveal if a dataset is unreliable. For example, if the total number of counts in the samples is below 6 million, the CRISPRclean workflow will not operate with the default parameters, and if these totals are much lower, the data are likely unreliable. Additionally, other tests on mapping results can uncover anomalies.
+The count table can help reveal if a dataset is unreliable. For example, if the total number of counts in the samples is below 6 million, the CRISPRcleanR workflow will not operate with the default parameters, and if these totals are much lower, the data are likely unreliable. Additionally, other tests on mapping results can uncover anomalies.
