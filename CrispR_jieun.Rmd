@@ -1,5 +1,5 @@
 ---
-title: "CrispR analysis with Bioconductor"
+title: "CRISPR analysis with Bioconductor"
 author: "Jieun Jeong"
 date: "`r Sys.Date()`"
 output: pdf_document
