@@ -9,3 +9,6 @@ CRISPR screens can also be applied to other areas of investigation beyond neopla
 Here, I developed and tested Files_to_DF, my workflow for constructing the data frame (or table) that serves as the input for the existing CRISPRcleanR workflow, ccr.AnalysisPipeline. The latter can be executed with a single function call to run the entire pipeline. In fact, any collection of FASTQ files can be processed with this script.
 
 The count table can help reveal if a dataset is unreliable. For example, if the total number of counts in the samples is below 6 million, the CRISPRcleanR workflow will not operate with the default parameters, and if these totals are much lower, the data are likely unreliable. Additionally, other tests on mapping results can uncover anomalies.
+
+CrispR_jieun.Rmd tests R function for elements of quality control, construction of the count table and the ccr.AnalysisPipeline from CRISPRcleanR package.  In R markdown context, the latter function exhibits some quirks, and somehow it crashed "knit", but it runs nicely
+in separate Crispr_Part2.Rmd, so I tested it like that and added a function for inspecting results on single genes which also show how to access the output.
