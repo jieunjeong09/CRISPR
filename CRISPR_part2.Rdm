@@ -1,0 +1,52 @@
+---
+title: "CRISPR_2_jieun.Rmd"
+author: "Jieun Jeong"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Analysis pipeline:
+
+```{r Analysis,  warning=FALSE, message=FALSE}
+require("CRISPRcleanR")
+data("KY_Library_v1.0")
+wd <- "/Users/jieun/Work/Crispr"
+wdf <- function(...) file.path(wd,...)
+fn <- file.path( system.file("extdata", package = "CRISPRcleanR"),
+                 "HT-29_counts.tsv")
+ccr.AnalysisPipeline(
+  file_counts = fn,
+  outdir=wdf('/HT29_pipeline/'), EXPname = 'HT29',
+  library_builtin = "KY_Library_v1.0",
+  run_mageck = FALSE,
+  ncontrols = 1
+)
+```
+
+Analysis results in outdir can be used for gene set analysis etc., but
+one may also check what numbers support those results.
+
+```{r checkingGenes}
+dr <- wdf("HT29_pipeline/data")
+show_gene <- function(gene, data_dir = dr) {
+  cat("gene summary\n")
+  gs  <- read.delim(file.path(data_dir, "gene_summary.tsv"), sep = "\t")
+  gs <- gs[gene, ]
+  print(gs)
+  cat("\nrow counts\n")
+  gs <- read.delim(file.path(data_dir, "raw_counts.tsv"), sep = "\t")
+  gs <- gs[gs$gene == gene, ]
+  print(gs[,2:ncol(gs)], row.names=FALSE)
+  gs <- read.delim(file.path(data_dir, "counts_corrected.tsv"), sep = "\t")
+  gs <- gs[gs$gene == gene, ]
+  cat("\nnormalized counts\n")
+  print(gs[,2:ncol(gs)], row.names=FALSE)
+}
+show_gene("CDC27")
+```
